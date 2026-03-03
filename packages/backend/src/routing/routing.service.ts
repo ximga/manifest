@@ -8,6 +8,7 @@ import { TierAutoAssignService } from './tier-auto-assign.service';
 import { randomUUID } from 'crypto';
 import { encrypt, decrypt, getEncryptionSecret } from '../common/utils/crypto.util';
 import { expandProviderNames } from './provider-aliases';
+import { isCopilotModel } from './proxy/copilot-model-map';
 import { TIERS } from './scorer/types';
 
 const TIER_LABELS: Record<string, string> = {
@@ -41,9 +42,7 @@ export class RoutingService {
     provider: string,
     apiKey?: string,
   ): Promise<{ provider: UserProvider; isNew: boolean }> {
-    const apiKeyEncrypted = apiKey
-      ? encrypt(apiKey, getEncryptionSecret())
-      : null;
+    const apiKeyEncrypted = apiKey ? encrypt(apiKey, getEncryptionSecret()) : null;
 
     const existing = await this.providerRepo.findOne({
       where: { user_id: userId, provider },
@@ -75,10 +74,7 @@ export class RoutingService {
     return { provider: record, isNew: true };
   }
 
-  async removeProvider(
-    userId: string,
-    provider: string,
-  ): Promise<{ notifications: string[] }> {
+  async removeProvider(userId: string, provider: string): Promise<{ notifications: string[] }> {
     const existing = await this.providerRepo.findOne({
       where: { user_id: userId, provider },
     });
@@ -137,9 +133,7 @@ export class RoutingService {
 
   /* ── Override invalidation (for pricing sync) ── */
 
-  async invalidateOverridesForRemovedModels(
-    removedModels: string[],
-  ): Promise<void> {
+  async invalidateOverridesForRemovedModels(removedModels: string[]): Promise<void> {
     if (removedModels.length === 0) return;
 
     const affected = await this.tierRepo.find({
@@ -203,11 +197,7 @@ export class RoutingService {
     return rows;
   }
 
-  async setOverride(
-    userId: string,
-    tier: string,
-    model: string,
-  ): Promise<TierAssignment> {
+  async setOverride(userId: string, tier: string, model: string): Promise<TierAssignment> {
     const existing = await this.tierRepo.findOne({
       where: { user_id: userId, tier },
     });
@@ -251,10 +241,7 @@ export class RoutingService {
 
   /* ── Provider API key retrieval ── */
 
-  async getProviderApiKey(
-    userId: string,
-    provider: string,
-  ): Promise<string | null> {
+  async getProviderApiKey(userId: string, provider: string): Promise<string | null> {
     // Ollama runs locally — no API key needed
     if (provider.toLowerCase() === 'ollama') return '';
 
@@ -289,11 +276,22 @@ export class RoutingService {
 
   /* ── Runtime helper ── */
 
-  async getEffectiveModel(
-    userId: string,
-    assignment: TierAssignment,
-  ): Promise<string | null> {
+  async getEffectiveModel(userId: string, assignment: TierAssignment): Promise<string | null> {
     if (assignment.override_model !== null) {
+      // Fast path: if the override model is natively supported by GitHub Copilot
+      // and the user has github-copilot connected, accept it without a pricing DB lookup.
+      // This handles models that OpenRouter doesn't list (e.g. gpt-5-mini, claude-sonnet-4.6).
+      if (isCopilotModel(assignment.override_model)) {
+        const records = await this.providerRepo.find({
+          where: { user_id: userId, is_active: true },
+        });
+        const hasCopilot = records.some(
+          (r) =>
+            r.provider.toLowerCase() === 'github-copilot' || r.provider.toLowerCase() === 'copilot',
+        );
+        if (hasCopilot) return assignment.override_model;
+      }
+
       // Belt-and-suspenders: verify the provider is still connected.
       // Use the same case-insensitive matching as getProviderApiKey —
       // the DB may store "OpenAI" while pricing has "openai" or vice-versa.
@@ -309,15 +307,13 @@ export class RoutingService {
       // Provider disconnected or model unknown — fall through to auto
       this.logger.warn(
         `Override ${assignment.override_model} falling through to auto ` +
-        `for user=${userId} tier=${assignment.tier} ` +
-        `(auto=${assignment.auto_assigned_model})`,
+          `for user=${userId} tier=${assignment.tier} ` +
+          `(auto=${assignment.auto_assigned_model})`,
       );
     }
 
     if (assignment.auto_assigned_model === null) {
-      this.logger.warn(
-        `auto_assigned_model is null for user=${userId} tier=${assignment.tier}`,
-      );
+      this.logger.warn(`auto_assigned_model is null for user=${userId} tier=${assignment.tier}`);
     }
 
     return assignment.auto_assigned_model;

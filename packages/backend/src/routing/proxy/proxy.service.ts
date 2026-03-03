@@ -116,7 +116,7 @@ export class ProxyService {
           recentTiers,
         );
 
-    if (!resolved.model || !resolved.provider) {
+    if (!resolved.model || (!resolved.provider && !isCopilotModel(resolved.model))) {
       this.logger.warn(
         `No model available for user=${userId}: ` +
           `tier=${resolved.tier} model=${resolved.model} provider=${resolved.provider} ` +
@@ -242,8 +242,16 @@ export class ProxyService {
       );
 
       // Check if the response indicates quota exhaustion
+      this.logger.debug(
+        `Copilot response: status=${forward.response.status} ok=${forward.response.ok} model=${bareModel}`,
+      );
       if (!forward.response.ok) {
         const status = forward.response.status;
+        const body = await forward.response
+          .clone()
+          .text()
+          .catch(() => '');
+        this.logger.warn(`Copilot non-ok body (${status}): ${body.slice(0, 300)}`);
         if (status === 429) {
           this.logger.warn(
             `Copilot returned 429 for model=${bareModel}, activating cooldown and falling back`,

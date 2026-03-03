@@ -1,19 +1,30 @@
 /**
  * Maps between frontend provider IDs and pricing-DB provider names.
  * E.g. the user connects "gemini" but pricing rows use "Google".
+ *
+ * GitHub Copilot proxies models from multiple underlying providers
+ * (OpenAI, Anthropic, Google, xAI). When resolving whether a model's
+ * provider is "connected", treat github-copilot as a valid match for
+ * any provider whose models it supports — and vice versa.
  */
 const ALIASES: Record<string, string[]> = {
-  gemini: ['google'],
-  google: ['gemini'],
+  // Google / Gemini
+  gemini: ['google', 'github-copilot'],
+  google: ['gemini', 'github-copilot'],
+  // Alibaba / Qwen
   qwen: ['alibaba'],
   alibaba: ['qwen'],
   moonshot: ['moonshot'],
   minimax: ['minimax'],
   zai: ['zai', 'z.ai'],
   'z.ai': ['zai'],
-  xai: ['xai'],
+  // xAI — also available via Copilot
+  xai: ['github-copilot'],
   ollama: ['ollama'],
-  'github-copilot': ['copilot'],
+  // Anthropic — also available via Copilot
+  anthropic: ['github-copilot'],
+  // GitHub Copilot proxies OpenAI, Anthropic, Google, xAI
+  'github-copilot': ['copilot', 'openai', 'anthropic', 'google', 'xai'],
   copilot: ['github-copilot'],
 };
 
