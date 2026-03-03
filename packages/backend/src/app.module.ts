@@ -30,9 +30,33 @@ import { GithubModule } from './github/github.module';
 const isLocalMode = process.env['MANIFEST_MODE'] === 'local';
 const sessionGuardClass = isLocalMode ? LocalAuthGuard : SessionGuard;
 
-const frontendPath = process.env['MANIFEST_FRONTEND_DIR'] || join(__dirname, '..', '..', 'frontend', 'dist');
+// Resolve the frontend path at module load time.
+// MANIFEST_FRONTEND_DIR is set by server.js before requiring this module.
+// Fallback candidates in priority order:
+//   1. MANIFEST_FRONTEND_DIR env var (set by server.js)
+//   2. dist/../public  (openclaw-plugin layout: public/ lives next to dist/)
+//   3. dist/../../frontend/dist  (standalone/dev layout)
+function resolveFrontendPath(): string {
+  if (process.env['MANIFEST_FRONTEND_DIR']) {
+    return process.env['MANIFEST_FRONTEND_DIR'];
+  }
+  // In the openclaw-plugin layout the compiled backend lives at:
+  //   dist/backend/   (this file's __dirname)
+  // and the frontend static files live at:
+  //   public/         (two levels up: dist/backend → dist → public)
+  const pluginPublic = join(__dirname, '..', '..', 'public');
+  if (existsSync(pluginPublic)) return pluginPublic;
+  return join(__dirname, '..', '..', 'frontend', 'dist');
+}
+
+const frontendPath = resolveFrontendPath();
 const serveStaticImports = existsSync(frontendPath)
-  ? [ServeStaticModule.forRoot({ rootPath: frontendPath, exclude: ['/api/{*path}', '/otlp/{*path}', '/v1/{*path}'] })]
+  ? [
+      ServeStaticModule.forRoot({
+        rootPath: frontendPath,
+        exclude: ['/api/{*path}', '/otlp/{*path}', '/v1/{*path}'],
+      }),
+    ]
   : [];
 
 @Module({

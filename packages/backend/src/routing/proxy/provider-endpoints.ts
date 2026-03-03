@@ -104,7 +104,8 @@ PROVIDER_ENDPOINTS['github-copilot'] = {
     'Editor-Version': 'openclaw/1.0',
     'Copilot-Integration-Id': 'vscode-chat',
   }),
-  buildPath: openaiPath,
+  // Copilot uses /chat/completions (no /v1 prefix)
+  buildPath: () => '/chat/completions',
   format: 'openai',
 };
 

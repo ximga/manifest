@@ -226,8 +226,9 @@ export class ProxyService {
     }
 
     try {
-      // Exchange PAT → Copilot JWT
+      // Exchange PAT → Copilot JWT (or read from OpenClaw credential file)
       const { token, baseUrl } = await this.copilotToken.getToken(githubPat);
+      this.logger.debug(`Copilot: got token (${token.slice(0, 20)}...) baseUrl=${baseUrl}`);
 
       // Forward through copilot (uses OpenAI-compatible format)
       const forward = await this.providerClient.forwardWithBaseUrl(

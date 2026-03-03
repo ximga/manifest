@@ -1,8 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
 
+const COPILOT_CREDENTIAL_PATH = join(
+  homedir(),
+  '.openclaw',
+  'credentials',
+  'github-copilot.token.json',
+);
 const COPILOT_TOKEN_URL = 'https://api.github.com/copilot_internal/v2/token';
 const DEFAULT_COPILOT_API_BASE_URL = 'https://api.individual.githubcopilot.com';
-const REFRESH_BUFFER_MS = 5 * 60 * 1000; // Refresh 5 min before expiry
+const REFRESH_BUFFER_MS = 5 * 60 * 1000;
 
 interface CachedToken {
   token: string;
@@ -10,16 +19,21 @@ interface CachedToken {
   baseUrl: string;
 }
 
+interface CredentialFile {
+  token: string;
+  expiresAt: number;
+}
+
 /**
  * Manages the GitHub Copilot short-lived JWT lifecycle.
  *
- * GitHub Copilot uses a two-step auth flow:
- * 1. Long-lived GitHub PAT (Personal Access Token)
- * 2. Exchange PAT → short-lived JWT via /copilot_internal/v2/token
- *
- * The JWT is used as Bearer auth for the Copilot chat completions API.
- * The token response may include a `proxy-ep` field that specifies the
- * correct API base URL for the user's Copilot plan.
+ * Two token sources (in priority order):
+ * 1. OpenClaw's credential cache (~/.openclaw/credentials/github-copilot.token.json)
+ *    - Already a usable Copilot API JWT, no exchange needed
+ *    - OpenClaw manages refreshing this file
+ * 2. GitHub PAT → exchange via /copilot_internal/v2/token
+ *    - Used when the credential file is missing or expired
+ *    - Requires a PAT with Copilot scopes (device flow token, not classic PAT)
  */
 @Injectable()
 export class CopilotTokenService {
@@ -27,16 +41,18 @@ export class CopilotTokenService {
   private cache: CachedToken | null = null;
   private refreshPromise: Promise<CachedToken> | null = null;
 
-  /**
-   * Get a usable Copilot API token, refreshing if needed.
-   * Returns { token, baseUrl } or throws on failure.
-   */
   async getToken(githubPat: string): Promise<{ token: string; baseUrl: string }> {
+    // Try the OpenClaw credential file first — it's already a usable JWT
+    const fromFile = this.loadFromCredentialFile();
+    if (fromFile) {
+      return { token: fromFile.token, baseUrl: fromFile.baseUrl };
+    }
+
+    // Fall back to in-memory cache from PAT exchange
     if (this.cache && this.isUsable(this.cache)) {
       return { token: this.cache.token, baseUrl: this.cache.baseUrl };
     }
 
-    // Coalesce concurrent refresh attempts
     if (!this.refreshPromise) {
       this.refreshPromise = this.refresh(githubPat).finally(() => {
         this.refreshPromise = null;
@@ -47,15 +63,32 @@ export class CopilotTokenService {
     return { token: result.token, baseUrl: result.baseUrl };
   }
 
-  /**
-   * Invalidate the cached token (e.g. after a 401 from the Copilot API).
-   */
   invalidate(): void {
     this.cache = null;
   }
 
+  private loadFromCredentialFile(): CachedToken | null {
+    try {
+      if (!existsSync(COPILOT_CREDENTIAL_PATH)) return null;
+      const raw = readFileSync(COPILOT_CREDENTIAL_PATH, 'utf-8');
+      const data = JSON.parse(raw) as CredentialFile;
+      if (typeof data.token !== 'string' || !data.token) return null;
+      if (typeof data.expiresAt !== 'number') return null;
+      if (!this.isUsableMs(data.expiresAt)) return null;
+
+      const baseUrl = this.deriveBaseUrl(data.token);
+      return { token: data.token, expiresAt: data.expiresAt, baseUrl };
+    } catch {
+      return null;
+    }
+  }
+
   private isUsable(cached: CachedToken): boolean {
-    return cached.expiresAt - Date.now() > REFRESH_BUFFER_MS;
+    return this.isUsableMs(cached.expiresAt);
+  }
+
+  private isUsableMs(expiresAt: number): boolean {
+    return expiresAt - Date.now() > REFRESH_BUFFER_MS;
   }
 
   private async refresh(githubPat: string): Promise<CachedToken> {
@@ -95,7 +128,6 @@ export class CopilotTokenService {
     }
 
     const baseUrl = this.deriveBaseUrl(token);
-
     const cached: CachedToken = { token, expiresAt: expiresAtMs, baseUrl };
     this.cache = cached;
 
@@ -106,14 +138,9 @@ export class CopilotTokenService {
     return cached;
   }
 
-  /**
-   * Extract the API base URL from the token's proxy-ep field.
-   * Token format: "tid=...;proxy-ep=proxy.individual.githubcopilot.com;..."
-   */
   private deriveBaseUrl(token: string): string {
     const match = token.match(/(?:^|;)\s*proxy-ep=([^;\s]+)/i);
     if (!match?.[1]) return DEFAULT_COPILOT_API_BASE_URL;
-
     const host = match[1]
       .trim()
       .replace(/^https?:\/\//, '')
