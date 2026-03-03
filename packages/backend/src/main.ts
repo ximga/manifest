@@ -18,20 +18,27 @@ export async function bootstrap() {
   app.enableShutdownHooks();
   app.useGlobalFilters(new SpaFallbackFilter());
 
-  app.use(helmet({
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", "data:"],
-        connectSrc: ["'self'", "https://eu.i.posthog.com"],
-        fontSrc: ["'self'"],
-        objectSrc: ["'none'"],
-        frameAncestors: ["'none'"],
+  const isLocalMode = process.env['MANIFEST_MODE'] === 'local';
+  app.use(
+    helmet({
+      // Disable HSTS in local mode — the server runs over plain HTTP and sending
+      // this header causes browsers to force HTTPS for the configured max-age,
+      // breaking subsequent LAN access even by IP address.
+      strictTransportSecurity: isLocalMode ? false : undefined,
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          imgSrc: ["'self'", 'data:'],
+          connectSrc: ["'self'", 'https://eu.i.posthog.com'],
+          fontSrc: ["'self'"],
+          objectSrc: ["'none'"],
+          frameAncestors: ["'none'"],
+        },
       },
-    },
-  }));
+    }),
+  );
 
   const isDev = process.env['NODE_ENV'] !== 'production';
   if (isDev) {
@@ -81,19 +88,31 @@ export async function bootstrap() {
   }
 
   // Re-add body parsing for NestJS routes, with rawBody capture for OTLP protobuf
-  expressApp.use(express.json({
-    limit: '1mb',
-    verify: (req: express.Request & { rawBody?: Buffer }, _res: express.Response, buf: Buffer) => {
-      req.rawBody = buf;
-    },
-  }));
-  expressApp.use(express.raw({
-    type: 'application/x-protobuf',
-    limit: '5mb',
-    verify: (req: express.Request & { rawBody?: Buffer }, _res: express.Response, buf: Buffer) => {
-      req.rawBody = buf;
-    },
-  }));
+  expressApp.use(
+    express.json({
+      limit: '1mb',
+      verify: (
+        req: express.Request & { rawBody?: Buffer },
+        _res: express.Response,
+        buf: Buffer,
+      ) => {
+        req.rawBody = buf;
+      },
+    }),
+  );
+  expressApp.use(
+    express.raw({
+      type: 'application/x-protobuf',
+      limit: '5mb',
+      verify: (
+        req: express.Request & { rawBody?: Buffer },
+        _res: express.Response,
+        buf: Buffer,
+      ) => {
+        req.rawBody = buf;
+      },
+    }),
+  );
   expressApp.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
   const port = Number(process.env['PORT'] ?? 3001);
