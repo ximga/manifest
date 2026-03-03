@@ -1,12 +1,4 @@
-import {
-  Controller,
-  Post,
-  Req,
-  Res,
-  UseGuards,
-  Logger,
-  HttpException,
-} from '@nestjs/common';
+import { Controller, Post, Req, Res, UseGuards, Logger, HttpException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Request, Response as ExpressResponse } from 'express';
@@ -81,6 +73,9 @@ export class ProxyController {
         'X-Manifest-Confidence': String(meta.confidence),
         'X-Manifest-Reason': meta.reason,
       };
+      if (meta.copilotFallback) {
+        metaHeaders['X-Manifest-Copilot-Fallback'] = 'true';
+      }
 
       const providerResponse = forward.response;
 
@@ -95,9 +90,7 @@ export class ProxyController {
           meta.model,
           meta.tier,
           traceId,
-        ).catch((e) =>
-          this.logger.warn(`Failed to record provider error: ${e}`),
-        );
+        ).catch((e) => this.logger.warn(`Failed to record provider error: ${e}`));
 
         res.status(errorStatus);
         for (const [k, v] of Object.entries(metaHeaders)) res.setHeader(k, v);
@@ -112,10 +105,8 @@ export class ProxyController {
         headersSent = true;
 
         if (forward.isGoogle) {
-          await pipeStream(
-            providerResponse.body,
-            res,
-            (chunk) => this.providerClient.convertGoogleStreamChunk(chunk, meta.model),
+          await pipeStream(providerResponse.body, res, (chunk) =>
+            this.providerClient.convertGoogleStreamChunk(chunk, meta.model),
           );
         } else if (forward.isAnthropic) {
           await pipeStream(
@@ -130,10 +121,10 @@ export class ProxyController {
         let responseBody: unknown;
 
         if (forward.isGoogle) {
-          const googleData = await providerResponse.json() as Record<string, unknown>;
+          const googleData = (await providerResponse.json()) as Record<string, unknown>;
           responseBody = this.providerClient.convertGoogleResponse(googleData, meta.model);
         } else if (forward.isAnthropic) {
-          const anthropicData = await providerResponse.json() as Record<string, unknown>;
+          const anthropicData = (await providerResponse.json()) as Record<string, unknown>;
           responseBody = this.providerClient.convertAnthropicResponse(anthropicData, meta.model);
         } else {
           responseBody = await providerResponse.json();
@@ -154,10 +145,14 @@ export class ProxyController {
       this.logger.error(`Proxy error: ${message}`);
 
       if (status === 429 || status === 403 || status >= 500) {
-        this.recordProviderError(req.ingestionContext, status, message, undefined, undefined, traceId).catch(
-          (e) =>
-            this.logger.warn(`Failed to record provider error: ${e}`),
-        );
+        this.recordProviderError(
+          req.ingestionContext,
+          status,
+          message,
+          undefined,
+          undefined,
+          traceId,
+        ).catch((e) => this.logger.warn(`Failed to record provider error: ${e}`));
       }
 
       if (headersSent) {
@@ -191,8 +186,7 @@ export class ProxyController {
 
       if (this.rateLimitCooldown.size > this.MAX_COOLDOWN_ENTRIES) {
         for (const [k, v] of this.rateLimitCooldown) {
-          if (now - v >= this.RATE_LIMIT_COOLDOWN_MS)
-            this.rateLimitCooldown.delete(k);
+          if (now - v >= this.RATE_LIMIT_COOLDOWN_MS) this.rateLimitCooldown.delete(k);
         }
       }
     }

@@ -17,12 +17,19 @@ import { ProxyService } from './proxy/proxy.service';
 import { ProviderClient } from './proxy/provider-client';
 import { ProxyRateLimiter } from './proxy/proxy-rate-limiter';
 import { SessionMomentumService } from './proxy/session-momentum.service';
+import { CopilotTokenService } from './proxy/copilot-token.service';
 import { OllamaSyncService } from '../database/ollama-sync.service';
 import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([UserProvider, TierAssignment, AgentApiKey, AgentMessage, ModelPricing]),
+    TypeOrmModule.forFeature([
+      UserProvider,
+      TierAssignment,
+      AgentApiKey,
+      AgentMessage,
+      ModelPricing,
+    ]),
     ModelPricesModule,
     NotificationsModule,
   ],
@@ -36,6 +43,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     ProviderClient,
     ProxyRateLimiter,
     SessionMomentumService,
+    CopilotTokenService,
     OllamaSyncService,
   ],
   exports: [RoutingService, TierAutoAssignService],

@@ -1,13 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import {
-  PROVIDER_ENDPOINTS,
-  resolveEndpointKey,
-} from './provider-endpoints';
-import {
-  toGoogleRequest,
-  fromGoogleResponse,
-  transformGoogleStreamChunk,
-} from './google-adapter';
+import { PROVIDER_ENDPOINTS, resolveEndpointKey } from './provider-endpoints';
+import { toGoogleRequest, fromGoogleResponse, transformGoogleStreamChunk } from './google-adapter';
 import {
   toAnthropicRequest,
   fromAnthropicResponse,
@@ -82,9 +75,7 @@ export class ProviderClient {
     this.logger.debug(`Forwarding to ${endpointKey}: ${safeUrl}`);
 
     const timeoutSignal = AbortSignal.timeout(PROVIDER_TIMEOUT_MS);
-    const fetchSignal = signal
-      ? AbortSignal.any([timeoutSignal, signal])
-      : timeoutSignal;
+    const fetchSignal = signal ? AbortSignal.any([timeoutSignal, signal]) : timeoutSignal;
 
     const response = await fetch(url, {
       method: 'POST',
@@ -94,6 +85,45 @@ export class ProviderClient {
     });
 
     return { response, isGoogle, isAnthropic };
+  }
+
+  /**
+   * Forward a request with an explicit base URL override.
+   * Used for GitHub Copilot where the baseUrl is derived dynamically
+   * from the token exchange response.
+   */
+  async forwardWithBaseUrl(
+    provider: string,
+    apiToken: string,
+    model: string,
+    body: Record<string, unknown>,
+    stream: boolean,
+    baseUrl: string,
+    signal?: AbortSignal,
+  ): Promise<ForwardResult> {
+    const endpointKey = resolveEndpointKey(provider);
+    if (!endpointKey) {
+      throw new Error(`No endpoint configured for provider: ${provider}`);
+    }
+
+    const endpoint = PROVIDER_ENDPOINTS[endpointKey];
+    const url = `${baseUrl}${endpoint.buildPath(model)}`;
+    const headers = endpoint.buildHeaders(apiToken);
+    const requestBody = { ...body, model, stream };
+
+    this.logger.debug(`Forwarding to ${provider} (dynamic baseUrl): ${baseUrl}`);
+
+    const timeoutSignal = AbortSignal.timeout(PROVIDER_TIMEOUT_MS);
+    const fetchSignal = signal ? AbortSignal.any([timeoutSignal, signal]) : timeoutSignal;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(requestBody),
+      signal: fetchSignal,
+    });
+
+    return { response, isGoogle: false, isAnthropic: false };
   }
 
   /** Convert a Google non-streaming response to OpenAI format. */

@@ -13,6 +13,8 @@ const ALIASES: Record<string, string[]> = {
   'z.ai': ['zai'],
   xai: ['xai'],
   ollama: ['ollama'],
+  'github-copilot': ['copilot'],
+  copilot: ['github-copilot'],
 };
 
 /** Expand a set of provider names to include known aliases. */

@@ -66,8 +66,7 @@ export const PROVIDER_ENDPOINTS: Record<string, ProviderEndpoint> = {
   google: {
     baseUrl: 'https://generativelanguage.googleapis.com',
     buildHeaders: () => ({ 'Content-Type': 'application/json' }),
-    buildPath: (model: string) =>
-      `/v1beta/models/${model}:generateContent`,
+    buildPath: (model: string) => `/v1beta/models/${model}:generateContent`,
     format: 'google',
   },
   openrouter: {
@@ -84,6 +83,31 @@ export const PROVIDER_ENDPOINTS: Record<string, ProviderEndpoint> = {
   },
 };
 
+/**
+ * GitHub Copilot endpoint.
+ *
+ * Unlike other providers, Copilot uses a dynamic baseUrl and Bearer token
+ * obtained via a token exchange. The `buildHeaders` here uses the Copilot
+ * JWT (not the GitHub PAT). The caller must resolve the token before calling.
+ *
+ * The `baseUrl` is a placeholder — the actual URL is derived from the token's
+ * `proxy-ep` field at runtime by CopilotTokenService.
+ */
+const COPILOT_PLACEHOLDER_BASE = 'https://api.individual.githubcopilot.com';
+
+// Add github-copilot endpoint
+PROVIDER_ENDPOINTS['github-copilot'] = {
+  baseUrl: COPILOT_PLACEHOLDER_BASE,
+  buildHeaders: (apiToken: string) => ({
+    Authorization: `Bearer ${apiToken}`,
+    'Content-Type': 'application/json',
+    'Editor-Version': 'openclaw/1.0',
+    'Copilot-Integration-Id': 'vscode-chat',
+  }),
+  buildPath: openaiPath,
+  format: 'openai',
+};
+
 /** Resolve a pricing-DB provider name to a provider endpoint key. */
 export function resolveEndpointKey(provider: string): string | null {
   const lower = provider.toLowerCase();
@@ -92,6 +116,8 @@ export function resolveEndpointKey(provider: string): string | null {
   const aliases: Record<string, string> = {
     gemini: 'google',
     'z.ai': 'zai',
+    'github-copilot': 'github-copilot',
+    copilot: 'github-copilot',
   };
   return aliases[lower] ?? null;
 }
