@@ -61,15 +61,19 @@ describe('ProxyService', () => {
   };
 
   it('throws BadRequestException when messages are missing', async () => {
-    await expect(service.proxyRequest('user-1', {}, 'default')).rejects.toThrow(
+    await expect(service.proxyRequest('agent-1', 'user-1', {}, 'default')).rejects.toThrow(
       BadRequestException,
     );
   });
 
   it('throws BadRequestException when messages array is empty', async () => {
-    await expect(service.proxyRequest('user-1', { messages: [] }, 'default')).rejects.toThrow(
-      BadRequestException,
-    );
+    await expect(
+      service.proxyRequest('agent-1', 'user-1', { messages: [] }, 'default'),
+    ).rejects.toThrow(BadRequestException);
+
+    await expect(
+      service.proxyRequest('agent-1', 'user-1', { messages: [] }, 'default'),
+    ).rejects.toThrow(BadRequestException);
   });
 
   it('throws when no model is resolved', async () => {
@@ -82,7 +86,7 @@ describe('ProxyService', () => {
       reason: 'ambiguous',
     });
 
-    await expect(service.proxyRequest('user-1', body, 'default')).rejects.toThrow(
+    await expect(service.proxyRequest('agent-1', 'user-1', body, 'default')).rejects.toThrow(
       'No model available',
     );
   });
@@ -98,7 +102,7 @@ describe('ProxyService', () => {
     });
     routingService.getProviderApiKey.mockResolvedValue(null);
 
-    await expect(service.proxyRequest('user-1', body, 'default')).rejects.toThrow(
+    await expect(service.proxyRequest('agent-1', 'user-1', body, 'default')).rejects.toThrow(
       'No API key found',
     );
   });
@@ -121,7 +125,7 @@ describe('ProxyService', () => {
       isAnthropic: false,
     });
 
-    const result = await service.proxyRequest('user-1', body, 'sess-1');
+    const result = await service.proxyRequest('agent-1', 'user-1', body, 'sess-1');
 
     expect(result.meta).toEqual({
       tier: 'standard',
@@ -142,13 +146,11 @@ describe('ProxyService', () => {
       body,
       false,
       undefined,
-      undefined,
     );
   });
 
   it('passes recentTiers from momentum to resolver', async () => {
     // Pre-populate momentum
-    momentum.recordTier('sess-1', 'complex');
     momentum.recordTier('sess-1', 'complex');
 
     resolveService.resolve.mockResolvedValue({
@@ -166,16 +168,12 @@ describe('ProxyService', () => {
       isAnthropic: false,
     });
 
-    await service.proxyRequest('user-1', body, 'sess-1');
+    await service.proxyRequest('agent-1', 'user-1', body, 'sess-1');
 
-    expect(resolveService.resolve).toHaveBeenCalledWith(
-      'user-1',
-      body.messages,
-      undefined,
-      undefined,
-      undefined,
-      ['complex', 'complex'],
-    );
+    expect(resolveService.resolve).toHaveBeenCalledWith('agent-1', body.messages, undefined, [
+      'complex',
+      'complex',
+    ]);
   });
 
   it('does not pass tools or tool_choice to the resolver', async () => {
@@ -201,17 +199,10 @@ describe('ProxyService', () => {
       stream: false,
     };
 
-    await service.proxyRequest('user-1', bodyWithTools, 'default');
+    await service.proxyRequest('agent-1', 'user-1', bodyWithTools, 'default');
 
     // Resolver should receive undefined for tools and tool_choice
-    expect(resolveService.resolve).toHaveBeenCalledWith(
-      'user-1',
-      expect.any(Array),
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-    );
+    expect(resolveService.resolve).toHaveBeenCalledWith('agent-1', expect.any(Array), undefined);
 
     // But the full body (with tools) should be forwarded to the provider
     expect(providerClient.forward).toHaveBeenCalledWith(
@@ -220,7 +211,6 @@ describe('ProxyService', () => {
       'gpt-4o',
       bodyWithTools,
       false,
-      undefined,
       undefined,
     );
   });
@@ -243,10 +233,11 @@ describe('ProxyService', () => {
 
     const abortController = new AbortController();
     await service.proxyRequest(
+      'agent-1',
+
       'user-1',
       body,
       'default',
-      undefined,
       undefined,
       abortController.signal,
     );
@@ -290,9 +281,9 @@ describe('ProxyService', () => {
         isAnthropic: false,
       });
 
-      const result = await service.proxyRequest('user-1', heartbeatBody, 'sess-1');
+      const result = await service.proxyRequest('agent-1', 'user-1', heartbeatBody, 'sess-1');
 
-      expect(resolveService.resolveForTier).toHaveBeenCalledWith('user-1', 'simple');
+      expect(resolveService.resolveForTier).toHaveBeenCalledWith('agent-1', 'simple');
       expect(resolveService.resolve).not.toHaveBeenCalled();
       expect(result.meta.tier).toBe('simple');
       expect(result.meta.model).toBe('gpt-4o-mini');
@@ -314,7 +305,7 @@ describe('ProxyService', () => {
         isAnthropic: false,
       });
 
-      await service.proxyRequest('user-1', heartbeatBody, 'sess-1');
+      await service.proxyRequest('agent-1', 'user-1', heartbeatBody, 'sess-1');
 
       expect(providerClient.forward).toHaveBeenCalledWith(
         'OpenAI',
@@ -322,7 +313,6 @@ describe('ProxyService', () => {
         'gpt-4o-mini',
         heartbeatBody,
         false,
-        undefined,
         undefined,
       );
     });
@@ -356,9 +346,9 @@ describe('ProxyService', () => {
         isAnthropic: false,
       });
 
-      const result = await service.proxyRequest('user-1', buriedHeartbeatBody, 'sess-1');
+      const result = await service.proxyRequest('agent-1', 'user-1', buriedHeartbeatBody, 'sess-1');
 
-      expect(resolveService.resolveForTier).toHaveBeenCalledWith('user-1', 'simple');
+      expect(resolveService.resolveForTier).toHaveBeenCalledWith('agent-1', 'simple');
       expect(resolveService.resolve).not.toHaveBeenCalled();
       expect(result.meta.tier).toBe('simple');
       expect(result.meta.reason).toBe('heartbeat');
@@ -396,9 +386,9 @@ describe('ProxyService', () => {
         isAnthropic: false,
       });
 
-      const result = await service.proxyRequest('user-1', arrayContentBody, 'sess-1');
+      const result = await service.proxyRequest('agent-1', 'user-1', arrayContentBody, 'sess-1');
 
-      expect(resolveService.resolveForTier).toHaveBeenCalledWith('user-1', 'simple');
+      expect(resolveService.resolveForTier).toHaveBeenCalledWith('agent-1', 'simple');
       expect(result.meta.tier).toBe('simple');
       expect(result.meta.reason).toBe('heartbeat');
     });
@@ -419,7 +409,7 @@ describe('ProxyService', () => {
         isAnthropic: false,
       });
 
-      await service.proxyRequest('user-1', body, 'default');
+      await service.proxyRequest('agent-1', 'user-1', body, 'default');
 
       expect(resolveService.resolve).toHaveBeenCalled();
     });
@@ -455,7 +445,7 @@ describe('ProxyService', () => {
         stream: false,
       };
 
-      await service.proxyRequest('user-1', bodyWithSystem, 'default');
+      await service.proxyRequest('agent-1', 'user-1', bodyWithSystem, 'default');
 
       // Scorer should only receive the user message (system/developer stripped)
       const scoredMessages = resolveService.resolve.mock.calls[0][1];
@@ -473,7 +463,7 @@ describe('ProxyService', () => {
         stream: false,
       };
 
-      await service.proxyRequest('user-1', bodyWithSystem, 'default');
+      await service.proxyRequest('agent-1', 'user-1', bodyWithSystem, 'default');
 
       // Provider should get the FULL body including system messages
       expect(providerClient.forward).toHaveBeenCalledWith(
@@ -482,7 +472,6 @@ describe('ProxyService', () => {
         'gpt-4o-mini',
         bodyWithSystem,
         false,
-        undefined,
         undefined,
       );
     });
@@ -499,7 +488,7 @@ describe('ProxyService', () => {
         })),
       ];
 
-      await service.proxyRequest('user-1', { messages, stream: false }, 'default');
+      await service.proxyRequest('agent-1', 'user-1', { messages, stream: false }, 'default');
 
       const scoredMessages = resolveService.resolve.mock.calls[0][1];
       expect(scoredMessages).toHaveLength(10);
@@ -537,11 +526,11 @@ describe('ProxyService', () => {
       });
 
       await expect(
-        service.proxyRequest('user-1', body, 'default', 'tenant-1', 'my-agent'),
+        service.proxyRequest('agent-1', 'user-1', body, 'default', 'tenant-1', 'my-agent'),
       ).rejects.toThrow(HttpException);
 
       try {
-        await service.proxyRequest('user-1', body, 'default', 'tenant-1', 'my-agent');
+        await service.proxyRequest('agent-1', 'user-1', body, 'default', 'tenant-1', 'my-agent');
       } catch (err) {
         expect((err as HttpException).getStatus()).toBe(429);
         const response = (err as HttpException).getResponse() as Record<string, unknown>;
@@ -554,7 +543,7 @@ describe('ProxyService', () => {
     it('does not check limits when tenantId/agentName are not provided', async () => {
       setupSuccessMocks();
 
-      await service.proxyRequest('user-1', body, 'default');
+      await service.proxyRequest('agent-1', 'user-1', body, 'default');
 
       expect(limitCheck.checkLimits).not.toHaveBeenCalled();
     });
@@ -562,7 +551,7 @@ describe('ProxyService', () => {
     it('does not check limits when only tenantId is provided without agentName', async () => {
       setupSuccessMocks();
 
-      await service.proxyRequest('user-1', body, 'default', 'tenant-1');
+      await service.proxyRequest('agent-1', 'user-1', body, 'default', 'tenant-1');
 
       expect(limitCheck.checkLimits).not.toHaveBeenCalled();
     });
@@ -570,7 +559,7 @@ describe('ProxyService', () => {
     it('does not check limits when only agentName is provided without tenantId', async () => {
       setupSuccessMocks();
 
-      await service.proxyRequest('user-1', body, 'default', undefined, 'my-agent');
+      await service.proxyRequest('agent-1', 'user-1', body, 'default', undefined, 'my-agent');
 
       expect(limitCheck.checkLimits).not.toHaveBeenCalled();
     });
@@ -579,7 +568,14 @@ describe('ProxyService', () => {
       setupSuccessMocks();
       limitCheck.checkLimits.mockResolvedValue(null);
 
-      const result = await service.proxyRequest('user-1', body, 'default', 'tenant-1', 'my-agent');
+      const result = await service.proxyRequest(
+        'agent-1',
+        'user-1',
+        body,
+        'default',
+        'tenant-1',
+        'my-agent',
+      );
 
       expect(limitCheck.checkLimits).toHaveBeenCalledWith('tenant-1', 'my-agent');
       expect(result.meta.model).toBe('gpt-4o');
@@ -595,7 +591,7 @@ describe('ProxyService', () => {
       });
 
       try {
-        await service.proxyRequest('user-1', body, 'default', 'tenant-1', 'my-agent');
+        await service.proxyRequest('agent-1', 'user-1', body, 'default', 'tenant-1', 'my-agent');
         fail('Expected HttpException');
       } catch (err) {
         const response = (err as HttpException).getResponse() as Record<string, unknown>;
@@ -616,7 +612,7 @@ describe('ProxyService', () => {
       });
 
       try {
-        await service.proxyRequest('user-1', body, 'default', 'tenant-1', 'my-agent');
+        await service.proxyRequest('agent-1', 'user-1', body, 'default', 'tenant-1', 'my-agent');
         fail('Expected HttpException');
       } catch (err) {
         const response = (err as HttpException).getResponse() as Record<string, unknown>;
@@ -652,12 +648,11 @@ describe('ProxyService', () => {
         stream: false,
       };
 
-      await service.proxyRequest('user-1', bodyWithMaxTokens, 'default');
+      await service.proxyRequest('agent-1', 'user-1', bodyWithMaxTokens, 'default');
 
       expect(resolveService.resolve).toHaveBeenCalledWith(
-        'user-1',
+        'agent-1',
         expect.any(Array),
-        undefined,
         undefined,
         4096,
         undefined,
@@ -690,7 +685,7 @@ describe('ProxyService', () => {
         stream: false,
       };
 
-      await service.proxyRequest('user-1', bodyWithOnlySystem, 'default');
+      await service.proxyRequest('agent-1', 'user-1', bodyWithOnlySystem, 'default');
 
       // Scorer receives empty array after filtering
       const scoredMessages = resolveService.resolve.mock.calls[0][1];
@@ -703,7 +698,6 @@ describe('ProxyService', () => {
         'gpt-4o-mini',
         bodyWithOnlySystem,
         false,
-        undefined,
         undefined,
       );
     });
@@ -727,7 +721,7 @@ describe('ProxyService', () => {
         isAnthropic: false,
       });
 
-      const result = await service.proxyRequest('user-1', body, 'default');
+      const result = await service.proxyRequest('agent-1', 'user-1', body, 'default');
 
       expect(result.meta.provider).toBe('Ollama');
       expect(providerClient.forward).toHaveBeenCalledWith(
@@ -736,7 +730,6 @@ describe('ProxyService', () => {
         'llama3',
         body,
         false,
-        undefined,
         undefined,
       );
     });

@@ -50,6 +50,7 @@ export class ProxyService {
   ) {}
 
   async proxyRequest(
+    agentId: string,
     userId: string,
     body: Record<string, unknown>,
     sessionKey: string,
@@ -115,9 +116,9 @@ export class ProxyService {
     });
 
     const resolved = isHeartbeat
-      ? await this.resolveService.resolveForTier(userId, 'simple')
+      ? await this.resolveService.resolveForTier(agentId, 'simple')
       : await this.resolveService.resolve(
-          userId,
+          agentId,
           scoringMessages,
           undefined,
           undefined,
@@ -127,7 +128,7 @@ export class ProxyService {
 
     if (!resolved.model || (!resolved.provider && !isCopilotModel(resolved.model))) {
       this.logger.warn(
-        `No model available for user=${userId}: ` +
+        `No model available for agent=${agentId}: ` +
           `tier=${resolved.tier} model=${resolved.model} provider=${resolved.provider} ` +
           `confidence=${resolved.confidence} reason=${resolved.reason}`,
       );
@@ -138,7 +139,7 @@ export class ProxyService {
 
     // --- Provider Preference: Try GitHub Copilot first ---
     const copilotResult = await this.tryCopilotFirst(
-      userId,
+      agentId,
       resolved.model,
       providerBody,
       stream,
@@ -163,7 +164,7 @@ export class ProxyService {
     }
 
     // --- Fallback: Use the original resolved provider ---
-    const apiKey = await this.routingService.getProviderApiKey(userId, resolved.provider!);
+    const apiKey = await this.routingService.getProviderApiKey(agentId, resolved.provider!);
     if (apiKey === null) {
       throw new BadRequestException(
         `No API key found for provider: ${String(resolved.provider)}. Re-connect the provider with an API key.`,

@@ -40,7 +40,7 @@ export class ProxyController {
     @Req() req: Request & { ingestionContext: IngestionContext },
     @Res() res: ExpressResponse,
   ): Promise<void> {
-    const { userId, tenantId, agentName } = req.ingestionContext;
+    const { userId, agentId, tenantId, agentName } = req.ingestionContext;
     const body = req.body as Record<string, unknown>;
     const sessionKey = (req.headers['x-session-key'] as string) || 'default';
     const traceId = this.extractTraceId(req);
@@ -56,6 +56,7 @@ export class ProxyController {
       this.rateLimiter.acquireSlot(userId);
       slotAcquired = true;
       const { forward, meta } = await this.proxyService.proxyRequest(
+        agentId,
         userId,
         body,
         sessionKey,
