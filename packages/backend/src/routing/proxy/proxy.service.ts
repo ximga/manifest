@@ -57,7 +57,16 @@ export class ProxyService {
     agentName?: string,
     signal?: AbortSignal,
   ): Promise<ProxyResult> {
-    const messages = body.messages;
+    // Keep a pristine copy to forward to real providers (includes tools)
+    const providerBody = JSON.parse(JSON.stringify(body || {})) as Record<string, unknown>;
+
+    // Create a stripped copy for scoring/internal checks that removes tool definitions
+    const scoringBody = { ...(body || {}) } as Record<string, unknown>;
+    if (Object.prototype.hasOwnProperty.call(scoringBody, 'tools')) {
+      delete scoringBody.tools;
+    }
+
+    const messages = scoringBody.messages;
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       throw new BadRequestException('messages array is required');
     }
@@ -87,7 +96,7 @@ export class ProxyService {
     }
 
     const recentTiers = this.momentum.getRecentTiers(sessionKey);
-    const stream = body.stream === true;
+    const stream = providerBody.stream === true;
 
     const scoringMessages = (messages as ScorerMessage[])
       .filter((m) => !SCORING_EXCLUDED_ROLES.has(m.role))
@@ -112,7 +121,7 @@ export class ProxyService {
           scoringMessages,
           undefined,
           undefined,
-          body.max_tokens as number | undefined,
+          scoringBody.max_tokens as number | undefined,
           recentTiers,
         );
 
@@ -128,7 +137,13 @@ export class ProxyService {
     }
 
     // --- Provider Preference: Try GitHub Copilot first ---
-    const copilotResult = await this.tryCopilotFirst(userId, resolved.model, body, stream, signal);
+    const copilotResult = await this.tryCopilotFirst(
+      userId,
+      resolved.model,
+      providerBody,
+      stream,
+      signal,
+    );
 
     if (copilotResult) {
       this.logger.log(
@@ -148,10 +163,10 @@ export class ProxyService {
     }
 
     // --- Fallback: Use the original resolved provider ---
-    const apiKey = await this.routingService.getProviderApiKey(userId, resolved.provider);
+    const apiKey = await this.routingService.getProviderApiKey(userId, resolved.provider!);
     if (apiKey === null) {
       throw new BadRequestException(
-        `No API key found for provider: ${resolved.provider}. Re-connect the provider with an API key.`,
+        `No API key found for provider: ${String(resolved.provider)}. Re-connect the provider with an API key.`,
       );
     }
 
@@ -166,10 +181,10 @@ export class ProxyService {
     }
 
     const forward = await this.providerClient.forward(
-      resolved.provider,
+      resolved.provider!,
       apiKey,
       resolved.model,
-      body,
+      providerBody,
       stream,
       signal,
       Object.keys(extraHeaders).length > 0 ? extraHeaders : undefined,
@@ -182,7 +197,7 @@ export class ProxyService {
       meta: {
         tier: resolved.tier as Tier,
         model: resolved.model,
-        provider: resolved.provider,
+        provider: resolved.provider!,
         confidence: resolved.confidence,
         reason: resolved.reason,
         copilotFallback: copilotResult === null,

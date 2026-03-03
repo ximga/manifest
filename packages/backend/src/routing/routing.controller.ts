@@ -1,18 +1,11 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  Param,
-  Post,
-  Put,
-} from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { AuthUser } from '../auth/auth.instance';
 import { RoutingService } from './routing.service';
 import { ModelPricingCacheService } from '../model-prices/model-pricing-cache.service';
 import { OllamaSyncService } from '../database/ollama-sync.service';
 import { expandProviderNames } from './provider-aliases';
+import { isCopilotModel } from './proxy/copilot-model-map';
 import { trackCloudEvent } from '../common/utils/product-telemetry';
 import {
   TierParamDto,
@@ -54,21 +47,17 @@ export class RoutingController {
   }
 
   @Post('providers')
-  async upsertProvider(
-    @CurrentUser() user: AuthUser,
-    @Body() body: ConnectProviderDto,
-  ) {
+  async upsertProvider(@CurrentUser() user: AuthUser, @Body() body: ConnectProviderDto) {
     // Sync Ollama models before connecting so tier assignment has data
     if (body.provider.toLowerCase() === 'ollama') {
       await this.ollamaSync.sync();
     }
 
-    const { provider: result, isNew } =
-      await this.routingService.upsertProvider(
-        user.id,
-        body.provider,
-        body.apiKey,
-      );
+    const { provider: result, isNew } = await this.routingService.upsertProvider(
+      user.id,
+      body.provider,
+      body.apiKey,
+    );
 
     if (isNew) {
       trackCloudEvent('routing_provider_connected', user.id, {
@@ -90,14 +79,8 @@ export class RoutingController {
   }
 
   @Delete('providers/:provider')
-  async removeProvider(
-    @CurrentUser() user: AuthUser,
-    @Param() params: ProviderParamDto,
-  ) {
-    const { notifications } = await this.routingService.removeProvider(
-      user.id,
-      params.provider,
-    );
+  async removeProvider(@CurrentUser() user: AuthUser, @Param() params: ProviderParamDto) {
+    const { notifications } = await this.routingService.removeProvider(user.id, params.provider);
     return { ok: true, notifications };
   }
 
@@ -125,10 +108,7 @@ export class RoutingController {
   }
 
   @Delete('tiers/:tier')
-  async clearOverride(
-    @CurrentUser() user: AuthUser,
-    @Param() params: TierParamDto,
-  ) {
+  async clearOverride(@CurrentUser() user: AuthUser, @Param() params: TierParamDto) {
     await this.routingService.clearOverride(user.id, params.tier);
     return { ok: true };
   }
@@ -149,7 +129,9 @@ export class RoutingController {
     );
 
     const models = this.pricingCache.getAll();
-    return models
+
+    // Base set: canonical provider models filtered by active providers
+    const base = models
       .filter((m) => activeProviders.has(m.provider.toLowerCase()))
       .map((m) => ({
         model_name: m.model_name,
@@ -161,5 +143,29 @@ export class RoutingController {
         capability_code: m.capability_code,
         quality_score: m.quality_score,
       }));
+
+    // If the user has a GitHub Copilot connection, also expose a Copilot group
+    const hasCopilot = providers.some(
+      (p) => p.is_active && p.provider.toLowerCase() === 'github-copilot',
+    );
+    if (hasCopilot) {
+      const copilotEntries = models
+        .filter((m) => isCopilotModel(m.model_name))
+        .map((m) => ({
+          model_name: m.model_name,
+          provider: 'GitHub Copilot',
+          input_price_per_token: m.input_price_per_token,
+          output_price_per_token: m.output_price_per_token,
+          context_window: m.context_window,
+          capability_reasoning: m.capability_reasoning,
+          capability_code: m.capability_code,
+          quality_score: m.quality_score,
+        }));
+
+      // Return canonical models + the extra Copilot group
+      return base.concat(copilotEntries);
+    }
+
+    return base;
   }
 }
